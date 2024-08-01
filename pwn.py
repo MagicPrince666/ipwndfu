@@ -27,5 +27,5 @@ dfu.usb_reset(device)
 dfu.release_device(device)
 
 
-print 'patched mapping and signature checks'
+print ('patched mapping and signature checks')
 

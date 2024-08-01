@@ -38,4 +38,4 @@ dfu.release_device(device)
 
 # All done
 
-print 'Removed SecureROM Signature Checks.'
+print ('Removed SecureROM Signature Checks.')
